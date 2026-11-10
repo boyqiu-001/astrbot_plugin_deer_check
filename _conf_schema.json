@@ -11,6 +11,13 @@
         "type": "list",
         "default": []
     },
+    "platform_mode": {
+        "description": "平台模式",
+        "hint": "auto=自动检测（默认）；official=QQ官方机器人模式，排行榜不做本群过滤、直接全库统计并显示库内昵称；onebot=OneBot协议端模式，排行榜按本群成员过滤并显示群昵称。",
+        "type": "string",
+        "default": "auto",
+        "options": ["auto", "official", "onebot"]
+    },
     "day_start_time": {
         "description": "每天开始时间",
         "hint": "设置每天的开始时间，格式为 HH:MM，比如设置为 02:00 意味着凌晨 2 点前都算前一天。",

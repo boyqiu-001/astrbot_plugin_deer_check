@@ -39,6 +39,14 @@ class DeerCheckinPlugin(Star):
             self.config.get("enable_female_calendar", False)
         )
         self.ranking_display_count = int(self.config.get("ranking_display_count", 10))
+        self.platform_mode = str(
+            self.config.get("platform_mode", "auto")
+        ).strip().lower()
+        if self.platform_mode not in ("auto", "official", "onebot"):
+            logger.warning(
+                f"platform_mode 配置非法：{self.platform_mode}，已回落为 auto"
+            )
+            self.platform_mode = "auto"
 
         data_dir = StarTools.get_data_dir("astrbot_plugin_deer_check")
         os.makedirs(data_dir, exist_ok=True)
