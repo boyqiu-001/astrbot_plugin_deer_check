@@ -92,6 +92,9 @@ class DeerCheckinPlugin(Star):
                 columns = [row[1] for row in await cursor.fetchall()]
                 if "created_at" not in columns:
                     await conn.execute("ALTER TABLE checkin ADD COLUMN created_at TEXT")
+                # 为排行榜降级显示补充昵称列（兼容旧库）
+                if "user_name" not in columns:
+                    await conn.execute("ALTER TABLE checkin ADD COLUMN user_name TEXT")
                 await conn.commit()
             logger.info("鹿打卡数据库初始化成功。")
 
@@ -105,6 +108,13 @@ class DeerCheckinPlugin(Star):
                         PRIMARY KEY (user_id, checkin_date)
                     )
                 """)
+                # 为排行榜降级显示补充昵称列（兼容旧库）
+                cursor = await conn.execute("PRAGMA table_info(klittra_checkin)")
+                columns = [row[1] for row in await cursor.fetchall()]
+                if "user_name" not in columns:
+                    await conn.execute(
+                        "ALTER TABLE klittra_checkin ADD COLUMN user_name TEXT"
+                    )
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS metadata (
                         key TEXT PRIMARY KEY,
@@ -346,16 +356,18 @@ class DeerCheckinPlugin(Star):
             async with aiosqlite.connect(self.deer_db_path) as conn:
                 await conn.execute(
                     """
-                    INSERT INTO checkin (user_id, checkin_date, deer_count, created_at)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO checkin (user_id, checkin_date, deer_count, created_at, user_name)
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(user_id, checkin_date)
-                    DO UPDATE SET deer_count = deer_count + excluded.deer_count;
+                    DO UPDATE SET deer_count = deer_count + excluded.deer_count,
+                                  user_name = excluded.user_name;
                 """,
                     (
                         user_id,
                         today_str,
                         deer_count,
                         current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        user_name,
                     ),
                 )
                 await conn.commit()
@@ -458,12 +470,13 @@ class DeerCheckinPlugin(Star):
             async with aiosqlite.connect(self.klittra_db_path) as conn:
                 await conn.execute(
                     """
-                    INSERT INTO klittra_checkin (user_id, checkin_date, klittra_count)
-                    VALUES (?, ?, ?)
+                    INSERT INTO klittra_checkin (user_id, checkin_date, klittra_count, user_name)
+                    VALUES (?, ?, ?, ?)
                     ON CONFLICT(user_id, checkin_date)
-                    DO UPDATE SET klittra_count = klittra_count + excluded.klittra_count;
+                    DO UPDATE SET klittra_count = klittra_count + excluded.klittra_count,
+                                  user_name = excluded.user_name;
                 """,
-                    (user_id, today_str, pinch_count),
+                    (user_id, today_str, pinch_count, user_name),
                 )
                 await conn.commit()
             logger.info(
@@ -733,16 +746,18 @@ class DeerCheckinPlugin(Star):
             async with aiosqlite.connect(self.deer_db_path) as conn:
                 await conn.execute(
                     """
-                    INSERT INTO checkin (user_id, checkin_date, deer_count, created_at)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO checkin (user_id, checkin_date, deer_count, created_at, user_name)
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(user_id, checkin_date)
-                    DO UPDATE SET deer_count = deer_count + excluded.deer_count;
+                    DO UPDATE SET deer_count = deer_count + excluded.deer_count,
+                                  user_name = excluded.user_name;
                 """,
                     (
                         user_id,
                         target_date_str,
                         deer_count,
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        user_name,
                     ),
                 )
                 await conn.commit()
