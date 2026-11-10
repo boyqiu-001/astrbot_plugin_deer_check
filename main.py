@@ -25,7 +25,9 @@ class DeerCheckinPlugin(Star):
         self.config = config if config is not None else {}
 
         # 配置项
-        self.group_whitelist = self.config.get("group_whitelist", [])
+        self.group_whitelist = [
+            str(g) for g in self.config.get("group_whitelist", [])
+        ]
         self.user_blacklist = self.config.get("user_blacklist", [])
         self.day_start_time = self.config.get("day_start_time", "00:00")
         self.auto_delete_last_month_data = bool(
@@ -232,7 +234,7 @@ class DeerCheckinPlugin(Star):
         if (
             self.group_whitelist
             and group_id
-            and int(group_id) not in self.group_whitelist
+            and str(group_id) not in self.group_whitelist
         ):
             logger.info(f"群 {group_id} 不在白名单中，忽略请求")
             return None
