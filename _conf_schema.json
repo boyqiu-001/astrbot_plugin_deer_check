@@ -1,8 +1,7 @@
 {
     "group_whitelist": {
         "description": "群组白名单",
-        "hint": "只有在白名单里的群才能使用本插件功能，不填表示所有群都可使用。",
-        "type": "list",
+        "hint": "只有在白名单里的群才能使用本插件功能，不填表示所有群都可使用。QQ 官方机器人平台请填群 openid。",
         "default": []
     },
     "user_blacklist": {
