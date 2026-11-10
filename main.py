@@ -257,6 +257,11 @@ class DeerCheckinPlugin(Star):
         await self._ensure_initialized()
         return group_id, user_id
 
+    def _get_display_name(self, event: AstrMessageEvent) -> str:
+        """获取发送者显示名；官方平台昵称可能为空，此时回落为 user_id。"""
+        name = (event.get_sender_name() or "").strip()
+        return name or event.get_sender_id()
+
     @filter.regex(r"^🦌+$")
     async def handle_deer_checkin(self, event: AstrMessageEvent):
         """处理鹿打卡事件：记录数据，然后发送日历。"""
@@ -264,7 +269,7 @@ class DeerCheckinPlugin(Star):
         if not guarded:
             return
         group_id, user_id = guarded
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
         deer_count = event.message_str.count("🦌")
 
         current_time = datetime.now()
@@ -376,7 +381,7 @@ class DeerCheckinPlugin(Star):
         if not guarded:
             return
         group_id, user_id = guarded
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
         pinch_count = event.message_str.count("🤏")
 
         current_time = datetime.now()
@@ -471,7 +476,7 @@ class DeerCheckinPlugin(Star):
 
         # 发送扣日历
         user_id = event.get_sender_id()
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         (
             result_text,
@@ -504,7 +509,7 @@ class DeerCheckinPlugin(Star):
         if not guarded:
             return
         group_id, user_id = guarded
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         match = re.search(r"^🦌日历(?:\s+(\d{1,2}))?$", event.message_str)
         param = match.group(1) if match and match.group(1) else None
@@ -540,7 +545,7 @@ class DeerCheckinPlugin(Star):
         if not guarded:
             return
         group_id, user_id = guarded
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
         current_time = datetime.now()
         adjusted_date_str = self._get_adjusted_date(current_time)
         current_year = int(adjusted_date_str[:4])
@@ -618,7 +623,7 @@ class DeerCheckinPlugin(Star):
             logger.error("补签处理器被触发，但内部正则匹配失败！这不应该发生。")
             return
 
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         # 从 match 对象中解析日期和次数
         try:
@@ -776,7 +781,7 @@ class DeerCheckinPlugin(Star):
             logger.error("撤销处理器被触发，但内部正则匹配失败！这不应该发生。")
             return
 
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         # 从 match 对象中解析日期和次数
         try:
@@ -871,7 +876,7 @@ class DeerCheckinPlugin(Star):
         if not guarded:
             return
         group_id, user_id = guarded
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         try:
             async with aiosqlite.connect(self.deer_db_path) as conn:
@@ -905,7 +910,7 @@ class DeerCheckinPlugin(Star):
         if not guarded:
             return
         group_id, user_id = guarded
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         try:
             async with aiosqlite.connect(self.klittra_db_path) as conn:
@@ -1103,7 +1108,7 @@ class DeerCheckinPlugin(Star):
         if not guarded:
             return
         group_id, user_id = guarded
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         # 获取当前调整后的日期
         current_time = datetime.now()
@@ -1561,7 +1566,7 @@ class DeerCheckinPlugin(Star):
         pattern = r"^🦌(?:分析|报告)(?:\s+(\d{1,2}|\d{4}))?$"
         match = re.search(pattern, event.message_str)
 
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         # 解析参数
         param = match.group(1) if match and match.group(1) else None
@@ -1673,7 +1678,7 @@ class DeerCheckinPlugin(Star):
             except ValueError:
                 pass  # 如果解析失败，回退到当前年份
 
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         logger.info(f"用户 {user_name} ({user_id}) 请求查看 {current_year}年的年历。")
 
@@ -1766,7 +1771,7 @@ class DeerCheckinPlugin(Star):
             except ValueError:
                 pass  # 如果解析失败，回退到当前年份
 
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         logger.info(f"用户 {user_name} ({user_id}) 请求查看 {current_year}年的扣年历。")
 
@@ -1875,7 +1880,7 @@ class DeerCheckinPlugin(Star):
             target_year = current_year
 
         target_month_str = f"{target_year}-{target_month:02d}"
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         logger.info(
             f"用户 {user_name} ({user_id}) 请求查看 {target_year}年{target_month}月的扣日历。"
@@ -2210,7 +2215,7 @@ class DeerCheckinPlugin(Star):
     ):
         """查询和生成当月的打卡日历。"""
         user_id = event.get_sender_id()
-        user_name = event.get_sender_name()
+        user_name = self._get_display_name(event)
 
         # 使用 deer_core 方法
         (
