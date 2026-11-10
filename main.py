@@ -95,6 +95,13 @@ class DeerCheckinPlugin(Star):
                 # 为排行榜降级显示补充昵称列（兼容旧库）
                 if "user_name" not in columns:
                     await conn.execute("ALTER TABLE checkin ADD COLUMN user_name TEXT")
+                # 月度清理在鹿库记录清理月份，需与扣库同样建 metadata 表
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS metadata (
+                        key TEXT PRIMARY KEY,
+                        value TEXT
+                    )
+                """)
                 await conn.commit()
             logger.info("鹿打卡数据库初始化成功。")
 
