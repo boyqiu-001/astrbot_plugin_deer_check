@@ -21,11 +21,26 @@ class DeerCore:
         self.db_path = db_path
         self.temp_dir = temp_dir
 
-    async def _build_member_name_map(self, event, group_id: str) -> dict:
-        """获取群成员列表并构造 user_id -> 昵称 映射（仅 aiocqhttp 平台）"""
-        name_map = {}
+    async def _build_member_name_map(
+        self, event, group_id: str, mode: str = "auto"
+    ) -> dict | None:
+        """获取群成员列表并构造 user_id -> 昵称 映射（仅 aiocqhttp 平台支持）。
+
+        返回值语义：
+        - aiocqhttp 且 API 成功：返回 dict（可能为空）
+        - API 失败、平台不符或 mode=official：返回 None，由调用方降级为全库统计
+        mode: auto=按平台自动检测；official=强制降级；onebot=强制成员列表
+        """
+        if mode == "official":
+            return None
         try:
-            if event.get_platform_name() == "aiocqhttp":
+            platform = event.get_platform_name()
+            if mode == "onebot" and platform != "aiocqhttp":
+                logger.warning(
+                    f"platform_mode=onebot 但当前平台为 {platform}，降级为全库统计"
+                )
+                return None
+            if platform == "aiocqhttp":
                 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
                     AiocqhttpMessageEvent,
                 )
@@ -35,6 +50,7 @@ class DeerCore:
                     members_info = await client.api.call_action(
                         "get_group_member_list", group_id=int(group_id)
                     )
+                    name_map = {}
                     for member in members_info or []:
                         uid = str(member.get("user_id", ""))
                         if not uid:
@@ -43,9 +59,32 @@ class DeerCore:
                             member.get("card") or member.get("nickname") or ""
                         ).strip()
                         name_map[uid] = nickname or uid
+                    return name_map
         except Exception as e:
             logger.error(f"获取群成员列表失败: {e}")
-        return name_map
+        return None
+
+    async def get_persisted_display_names(
+        self, db_path: str, table: str = "checkin"
+    ) -> dict:
+        """读取库内持久化昵称：取每个 user_id 最近一条非空昵称（降级排行榜显示用）"""
+        names = {}
+        try:
+            async with aiosqlite.connect(db_path) as conn:
+                cursor = await conn.execute(
+                    f"""
+                    SELECT user_id, user_name FROM {table}
+                    WHERE user_name IS NOT NULL AND TRIM(user_name) != ''
+                    ORDER BY checkin_date
+                    """
+                )
+                rows = await cursor.fetchall()
+            for uid, name in rows:
+                if uid:
+                    names[str(uid)] = str(name).strip()
+        except Exception as e:
+            logger.error(f"读取持久化昵称失败: {e}")
+        return names
 
     def _create_ranking_image(
         self,
@@ -55,6 +94,7 @@ class DeerCore:
         month: int,
         total_participants: int = None,
         period_label: str = None,
+        scope_label: str = "本群",
     ) -> str:
         """
         绘制月度打卡排行榜图片，参考日历图片风格
@@ -173,7 +213,7 @@ class DeerCore:
         total_displayed_users = (
             total_participants if total_participants is not None else len(ranking_data)
         )
-        summary_text = f"本群共有 {total_displayed_users} 人参与打卡"
+        summary_text = f"{scope_label}共有 {total_displayed_users} 人参与打卡"
         draw.text(
             (WIDTH / 2, HEIGHT - 30),
             summary_text,
@@ -308,6 +348,15 @@ class DeerCore:
             fill=SUBTITLE_COLOR,
             anchor="mm",
         )
+        scope_note = data.get("scope_note")
+        if scope_note:
+            draw.text(
+                (WIDTH / 2, 113),
+                scope_note,
+                font=font_comment,
+                fill=COMMENT_COLOR,
+                anchor="mm",
+            )
 
         def draw_section(title, lines, start_y):
             content_height = 0

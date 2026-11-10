@@ -415,6 +415,7 @@ class KlittraCore:
         year: int,
         month: int,
         total_participants: int = None,
+        scope_label: str = "本群",
     ) -> str:
         """
         绘制月度扣日历排行榜图片，参考日历图片风格
@@ -513,7 +514,7 @@ class KlittraCore:
         total_displayed_users = (
             total_participants if total_participants is not None else len(ranking_data)
         )
-        summary_text = f"本群共有 {total_displayed_users} 人参与扣日历"
+        summary_text = f"{scope_label}共有 {total_displayed_users} 人参与扣日历"
         draw.text(
             (WIDTH / 2, HEIGHT - 30),
             summary_text,

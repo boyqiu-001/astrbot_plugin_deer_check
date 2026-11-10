@@ -966,22 +966,23 @@ class DeerCheckinPlugin(Star):
         week_end_str = (this_monday - timedelta(days=1)).strftime("%Y-%m-%d")
         current_month_str = today_str[:7]
 
-        # 获取群成员列表，构造昵称映射（仅 aiocqhttp 平台）
-        try:
-            name_map = await self._build_member_name_map(event, group_id)
-            if not name_map:
-                logger.warning(f"无法获取群 {group_id} 的成员列表")
-                yield event.plain_result("无法获取群成员信息，无法生成群报。")
-                return
-        except Exception as e:
-            logger.error(f"获取群成员列表失败: {e}")
-            yield event.plain_result("获取群成员信息时出错了 >_<")
-            return
-
-        group_user_ids = set(name_map.keys())
+        # 获取群成员映射（仅 aiocqhttp 平台）；无法获取时降级为全库统计
+        name_map = await self._build_member_name_map(
+            event, group_id, self.platform_mode
+        )
+        degraded = name_map is None or not name_map
+        if degraded:
+            name_map = {}
+            logger.info(f"群 {group_id} 无群成员列表，群报降级为全库统计")
+            persisted_names = await self.deer_core.get_persisted_display_names(
+                self.deer_db_path
+            )
+        else:
+            persisted_names = {}
 
         def display_name(uid: str) -> str:
-            return name_map.get(str(uid), str(uid))
+            uid = str(uid)
+            return name_map.get(uid) or persisted_names.get(uid) or f"用户{uid[-6:]}"
 
         def find_unique_king(rows) -> tuple | None:
             """取唯一最高者作为鹿王；无人打卡或最高次数并列时返回 None。"""
@@ -1024,15 +1025,22 @@ class DeerCheckinPlugin(Star):
             yield event.plain_result("查询群报数据时出错了 >_<")
             return
 
-        # 过滤出本群成员
+        # 过滤出本群成员（降级时不过滤，全库统计）
+        member_ids = None if degraded else set(name_map.keys())
         today_group = [
-            (uid, cnt, ts) for uid, cnt, ts in today_rows if str(uid) in group_user_ids
+            (uid, cnt, ts)
+            for uid, cnt, ts in today_rows
+            if member_ids is None or str(uid) in member_ids
         ]
         week_group = [
-            (uid, total) for uid, total in week_rows if str(uid) in group_user_ids
+            (uid, total)
+            for uid, total in week_rows
+            if member_ids is None or str(uid) in member_ids
         ]
         month_group = [
-            (uid, total) for uid, total in month_rows if str(uid) in group_user_ids
+            (uid, total)
+            for uid, total in month_rows
+            if member_ids is None or str(uid) in member_ids
         ]
 
         # 与 🦌排行 一致：超过每月计入上限的用户不计入本月统计
@@ -1078,6 +1086,7 @@ class DeerCheckinPlugin(Star):
         )
 
         report_data = {
+            "scope_note": "全库统计（未过滤本群成员）" if degraded else None,
             "first_name": first_name,
             "first_time": first_time,
             "first_count": first_count,
@@ -1486,25 +1495,27 @@ class DeerCheckinPlugin(Star):
             )
             return
 
-        # 获取当前群的所有成员
-        try:
-            name_map = await self._build_member_name_map(event, group_id)
-            if not name_map:
-                logger.warning(f"无法获取群 {group_id} 的成员列表")
-                yield event.plain_result("无法获取群成员信息，无法生成排行榜。")
-                return
-        except Exception as e:
-            logger.error(f"获取群成员列表失败: {e}")
-            yield event.plain_result("获取群成员信息时出错了 >_<")
-            return
+        # 获取当前群成员映射；无法获取时降级为全库统计
+        name_map = await self._build_member_name_map(
+            event, group_id, self.platform_mode
+        )
+        degraded = name_map is None or not name_map
+        if degraded:
+            name_map = {}
+            logger.info(
+                f"群 {group_id} 无群成员列表，{period_label} 排行降级为全库统计"
+            )
+            persisted_names = await self.deer_core.get_persisted_display_names(
+                self.deer_db_path
+            )
+        else:
+            persisted_names = {}
 
-        group_user_ids = set(name_map.keys())
-
-        # 过滤出当前群的用户
+        # 过滤出当前群的用户（降级时不过滤，全库统计）
         ranking_data = [
             (user_id, deer_count)
             for user_id, deer_count in all_users_data
-            if str(user_id) in group_user_ids
+            if degraded or str(user_id) in name_map
         ]
 
         # 每月上限仅对月度排行生效；年度排行按年汇总，不适用月度上限
@@ -1531,12 +1542,23 @@ class DeerCheckinPlugin(Star):
             )
             return
 
-        # 从群成员列表构造昵称
-        user_names = [name_map.get(str(uid), f"用户{uid}") for uid, _ in ranking_data]
+        # 构造昵称：群昵称优先；降级时用库内昵称，缺省用"用户+ID后6位"
+        if degraded:
+            user_names = [
+                name_map.get(str(uid))
+                or persisted_names.get(str(uid))
+                or f"用户{str(uid)[-6:]}"
+                for uid, _ in ranking_data
+            ]
+        else:
+            user_names = [
+                name_map.get(str(uid), f"用户{uid}") for uid, _ in ranking_data
+            ]
 
         # 生成排行榜图片
         image_path = ""
         try:
+            ranking_scope = "全库统计（未过滤本群成员）" if degraded else "本群"
             image_path = await asyncio.to_thread(
                 self._create_ranking_image,
                 user_names,
@@ -1545,6 +1567,7 @@ class DeerCheckinPlugin(Star):
                 target_month,
                 total_participants,
                 period_label,
+                ranking_scope,
             )
             yield event.image_result(image_path)
         except FileNotFoundError:
@@ -2002,25 +2025,25 @@ class DeerCheckinPlugin(Star):
             )
             return
 
-        # 获取当前群的所有成员
-        try:
-            name_map = await self._build_member_name_map(event, group_id)
-            if not name_map:
-                logger.warning(f"无法获取群 {group_id} 的成员列表")
-                yield event.plain_result("无法获取群成员信息，无法生成扣日历排行榜。")
-                return
-        except Exception as e:
-            logger.error(f"获取群成员列表失败: {e}")
-            yield event.plain_result("获取群成员信息时出错了 >_<")
-            return
+        # 获取当前群成员映射；无法获取时降级为全库统计
+        name_map = await self._build_member_name_map(
+            event, group_id, self.platform_mode
+        )
+        degraded = name_map is None or not name_map
+        if degraded:
+            name_map = {}
+            logger.info(f"群 {group_id} 无群成员列表，扣日历排行降级为全库统计")
+            persisted_names = await self.deer_core.get_persisted_display_names(
+                self.klittra_db_path, "klittra_checkin"
+            )
+        else:
+            persisted_names = {}
 
-        group_user_ids = set(name_map.keys())
-
-        # 过滤出当前群的用户
+        # 过滤出当前群的用户（降级时不过滤，全库统计）
         ranking_data = [
             (user_id, klittra_count)
             for user_id, klittra_count in all_users_data
-            if str(user_id) in group_user_ids
+            if degraded or str(user_id) in name_map
         ]
 
         # 根据配置的每月上限过滤数据（如果设置了限制）
@@ -2047,12 +2070,23 @@ class DeerCheckinPlugin(Star):
             )
             return
 
-        # 从群成员列表构造昵称
-        user_names = [name_map.get(str(uid), f"用户{uid}") for uid, _ in ranking_data]
+        # 构造昵称：群昵称优先；降级时用库内昵称，缺省用"用户+ID后6位"
+        if degraded:
+            user_names = [
+                name_map.get(str(uid))
+                or persisted_names.get(str(uid))
+                or f"用户{str(uid)[-6:]}"
+                for uid, _ in ranking_data
+            ]
+        else:
+            user_names = [
+                name_map.get(str(uid), f"用户{uid}") for uid, _ in ranking_data
+            ]
 
         # 生成排行榜图片
         image_path = ""
         try:
+            ranking_scope = "全库统计（未过滤本群成员）" if degraded else "本群"
             image_path = await asyncio.to_thread(
                 self.klittra_core._create_klittra_ranking_image,
                 user_names,
@@ -2060,6 +2094,7 @@ class DeerCheckinPlugin(Star):
                 current_year,
                 current_month,
                 total_participants,
+                ranking_scope,
             )
             yield event.image_result(image_path)
         except FileNotFoundError:
@@ -2134,10 +2169,10 @@ class DeerCheckinPlugin(Star):
         yield event.plain_result(help_text)
 
     async def _build_member_name_map(
-        self, event: AstrMessageEvent, group_id: str
-    ) -> dict:
-        """获取群成员列表并构造 user_id -> 昵称 映射"""
-        return await self.deer_core._build_member_name_map(event, group_id)
+        self, event: AstrMessageEvent, group_id: str, mode: str = "auto"
+    ) -> dict | None:
+        """获取群成员列表并构造 user_id -> 昵称 映射；None 表示降级为全库统计"""
+        return await self.deer_core._build_member_name_map(event, group_id, mode)
 
     def _create_ranking_image(
         self,
@@ -2147,12 +2182,19 @@ class DeerCheckinPlugin(Star):
         month: int,
         total_participants: int = None,
         period_label: str = None,
+        scope_label: str = "本群",
     ) -> str:
         """
         绘制月度打卡排行榜图片，参考日历图片风格
         """
         return self.deer_core._create_ranking_image(
-            user_names, ranking_data, year, month, total_participants, period_label
+            user_names,
+            ranking_data,
+            year,
+            month,
+            total_participants,
+            period_label,
+            scope_label,
         )
 
     async def _get_user_period_data(self, user_id: str, year: int, month: int) -> dict:
